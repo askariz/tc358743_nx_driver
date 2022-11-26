@@ -1,0 +1,181 @@
+#include <dt-bindings/media/camera.h>
+#include <dt-bindings/gpio/tegra194-gpio.h>
+#include <dt-bindings/clock/tegra194-clock.h>
+
+#define CAM0_PWDN	    TEGRA194_MAIN_GPIO(P, 4)
+#define CAM1_PWDN	    TEGRA194_MAIN_GPIO(P, 5)
+#define CAM_I2C_MUX 	TEGRA194_AON_GPIO(CC, 3)
+
+/{
+    host1x {
+        gpio: gpio@2200000 {
+            #gpio-cells = <2>;
+            camera-control-output-low {
+                gpio-hog;
+                output-low;
+                gpios = < CAM0_PWDN 0 >;
+                label = "cam0-pwdn";
+            };
+        };
+
+        vi@15c10000  {
+            num-channels = <1>;
+            ports {
+                #address-cells = <1>;
+                #size-cells = <0>;
+                tc358743_vi_port2: port@0 {
+                    status = "okay";
+                    reg = <0>;
+                    tc358743_vi_in0: endpoint {
+                        status = "okay";
+                        port-index = <4>;
+                        csi-port = <2>;  /* CSI-C */
+                        bus-width = <4>; /* Use CSI-CD*/
+                        remote-endpoint = <&tc358743_csi_out0>;
+                    };
+                };
+            };
+        };
+
+
+	    nvcsi@15a00000 {
+			num-channels = <1>;
+            #address-cells = <1>;
+            #size-cells = <0>;
+			channel@0 {
+				    reg = <0>;
+                	status = "okay";
+					ports {
+						#address-cells = <1>;
+						#size-cells = <0>;
+						port@0 {
+                        	status = "okay";
+							reg = <0>;
+							tc358743_csi_in0: endpoint@0 {
+								status = "okay";
+                            	port-index = <4>;
+								csi-port = <4>;
+								bus-width = <4>;
+								remote-endpoint = <&tc358743_out0>;
+							};
+						};
+						port@1 {
+                        	status = "okay";
+							reg = <1>;
+							tc358743_csi_out0: endpoint@1 {
+							status = "okay";
+                            remote-endpoint = <&tc358743_vi_in0>;
+						};
+					};
+				};
+			};
+        };
+    };
+
+
+   i2c@3180000 {  /* I2C_0, "adapter" 0 */
+        status = "okay";
+        #address-cells = <1>;
+        #size-cells = <0>;
+        
+        tc358743@0f {
+            status = "okay";
+            compatible = "tc358743";
+            reg = <0x0f>; /* (normal = address not shifted) */
+
+            devnode ="video0";
+
+            // Trying to make sense of these reference clocks
+            //clocks = <&bpmp_clks TEGRA194_CLK_EXTPERIPH1>, <&bpmp_clks TEGRA194_CLK_PLLP_OUT0>;
+            clocks = <&bpmp_clks TEGRA194_CLK_EXTPERIPH3>;
+            //clock-names = “extperiph1”, “pllp_grtba”;
+            clock-names = "extperiph1";
+            clock-frequency = <27000000>;
+            mclk = "cam_mclk1";
+
+            //mclk = "cam_mclk1";  // EDO commmented for modes
+            // reset-gpios = <&gpio 151 0>; // EDO commented out to test
+            reset-gpios = <&tegra_main_gpio CAM0_PWDN GPIO_ACTIVE_HIGH>;
+            refclk_hz = <27000000>;  // refclk_hz -> regclk
+	        //interrupt-parent = <&gpio>;
+	        interrupt-parent = <&tegra_main_gpio>;
+            interrupts = <TEGRA194_MAIN_GPIO(N, 1) GPIO_ACTIVE_HIGH>;
+            /* Physical dimensions of sensor */
+            physical_w = "4.713";
+            physical_h = "3.494";
+            /* Sensor Model */
+            sensor_model ="tc358743";
+            ddc5v_delay = <2>;
+            enable_hdcp = "false";
+            lineinitcnt = <0xe80>;
+            lptxtimecnt = <0x003>;
+            tclk_headercnt = <0x1403>;
+            tclk_trailcnt = <0x00>;
+            ths_headercnt = <0x0103>;
+            twakeup = <0x4882>;
+            tclk_postcnt = <0x008>;
+            ths_trailcnt = <0x02>;
+            hstxvregcnt = <0>;
+ 
+            ports {
+                status = "okay";
+                #address-cells = <1>;
+                #size-cells = <0>;
+                
+                port@0 {
+                    status = "okay";
+                    reg = <0>;
+                    tc358743_out0: endpoint {
+                        port-index = <0>; /* CSI B */
+                        bus-width = <2>; /* Use CSI-B only */
+                        data-lanes = <1 2>;
+                        clock-lanes = <0>;
+                        clock-noncontinuous;
+                        link-frequencies = /bits/ 64 <297000000>;
+                        remote-endpoint = <&tc358743_csi_in0>;
+                    };
+                };
+            };
+        };
+    };
+
+    tcp: tegra-camera-platform {
+	    status = "okay";
+		compatible = "nvidia,tegra-camera-platform";
+		num_csi_lanes = <4>;
+		max_lane_speed = <1500000>;
+		min_bits_per_pixel = <16>;
+		vi_peak_byte_per_pixel = <2>;
+		vi_bw_margin_pct = <25>;
+		max_pixel_rate = <430000>;  //408000  this is related to the capped VI's max BW  max_pixel_rate / 0.4 = capped VI BW  
+		isp_peak_byte_per_pixel = <2>;
+		isp_bw_margin_pct = <25>;
+
+	    /**
+		* The general guideline for naming badge_info contains 3 parts, and is as follows,
+		* The first part is the camera_board_id for the module; if the module is in a FFD
+		* platform, then use the platform name for this part.
+		* The second part contains the position of the module, ex. “rear” or “front”.
+		* The third part contains the last 6 characters of a part number which is found
+		* in the module's specsheet from the vender.
+		*/
+		modules {
+            module0 {
+                status = "okay";
+                badge = "tc358743_top_i2c2_cd";
+                position = "top";
+                orientation = "3";
+                drivernode0 {
+                    status = "okay";
+                    /* Declare PCL support driver (classically known as guid)  */
+                    pcl_id = "v4l2_sensor";
+                    /* Driver's v4l2 device name */
+                    devname = "tc358743 0-000f";
+                    /* Declare the device-tree hierarchy to driver instance */
+                    proc-device-tree = "/proc/device-tree/i2c@3180000/tc358743@0f";
+                };
+                
+            };
+		};
+	};
+};
