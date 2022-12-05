@@ -80,21 +80,9 @@
         
         tc358743@0f {
             status = "okay";
-            compatible = "tc358743";
+            compatible = "toshiba,tc358743";
             reg = <0x0f>; /* (normal = address not shifted) */
-
             devnode ="video0";
-
-            // Trying to make sense of these reference clocks
-            //clocks = <&bpmp_clks TEGRA194_CLK_EXTPERIPH1>, <&bpmp_clks TEGRA194_CLK_PLLP_OUT0>;
-            clocks = <&bpmp_clks TEGRA194_CLK_EXTPERIPH3>;
-            //clock-names = “extperiph1”, “pllp_grtba”;
-            clock-names = "extperiph1";
-            clock-frequency = <27000000>;
-            mclk = "cam_mclk1";
-
-            //mclk = "cam_mclk1";  // EDO commmented for modes
-            // reset-gpios = <&gpio 151 0>; // EDO commented out to test
             reset-gpios = <&tegra_main_gpio CAM0_PWDN GPIO_ACTIVE_HIGH>;
             refclk_hz = <27000000>;  // refclk_hz -> regclk
 	        //interrupt-parent = <&gpio>;

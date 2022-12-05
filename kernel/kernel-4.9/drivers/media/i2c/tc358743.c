@@ -1370,7 +1370,7 @@ static int tc358743_subscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
 static int tc358743_s_dv_timings(struct v4l2_subdev *sd,
                                  struct v4l2_dv_timings *timings) {
   struct tc358743_state *state = to_state(sd);
-  v4l2_info(sd, "%s\n", __func__);
+  v4l2_info(sd, "1111 %s\n", __func__);
   if (!timings) return -EINVAL;
 
   if (v4l2_match_dv_timings(&state->timings, timings, 0, false)) {
@@ -1388,7 +1388,7 @@ static int tc358743_s_dv_timings(struct v4l2_subdev *sd,
   enable_stream(sd, false);
   tc358743_set_pll(sd);
   tc358743_set_csi(sd);
-
+  v4l2_info(sd, "2222 %s\n", __func__);
   return 0;
 }
 
@@ -1491,6 +1491,7 @@ static int tc358743_g_mbus_config(struct v4l2_subdev *sd,
 
   return 0;
 }
+
 static int tc358743_s_stream(struct v4l2_subdev *sd, int enable) {
   v4l2_info(sd, "Calling %s\n", __FUNCTION__);
   v4l2_err(sd, "Calling %s\n", __FUNCTION__);
@@ -1898,17 +1899,17 @@ static bool tc358743_parse_dt(struct tc358743_platform_data *pdata,
                               struct i2c_client *client) {
   struct device_node *node = client->dev.of_node;
   const u32 *property;
-
-  v4l_dbg(1, debug, client, "Device Tree Parameters:\n");
+  pr_info("%s\n", __FUNCTION__);
+  pr_info("Device Tree Parameters:\n");
 
   pdata->reset_gpio = of_get_named_gpio(node, "reset-gpios", 0);
   if (pdata->reset_gpio == 0) return false;
-  v4l_dbg(1, debug, client, "reset_gpio = %d\n", pdata->reset_gpio);
+  pr_info("reset_gpio = %d\n", pdata->reset_gpio);
 
   property = of_get_property(node, "refclk_hz", NULL);
   if (property == NULL) return false;
   pdata->refclk_hz = be32_to_cpup(property);
-  v4l_dbg(1, debug, client, "refclk_hz = %d\n", be32_to_cpup(property));
+  pr_info("refclk_hz = %d\n", be32_to_cpup(property));
 
   return true;
 }
@@ -1929,30 +1930,16 @@ static int tc358743_probe_of(struct tc358743_state *state) {
   struct device *dev = &state->i2c_client->dev;
   struct v4l2_of_endpoint *endpoint;
   struct device_node *ep;
-  struct clk *refclk;
   u32 bps_pr_lane;
   int ret = -EINVAL;
+  pr_info("%s\n", __FUNCTION__);
 
-  // refclk = devm_clk_get(dev, "cam_mclk1");
-  // if (IS_ERR(refclk)) {
-  // 	if (PTR_ERR(refclk) != -EPROBE_DEFER)
-  // 		dev_err(dev, "failed to get refclk: %ld\n",
-  // 			PTR_ERR(refclk));
-  // 	return PTR_ERR(refclk);
-  // }
-
-  refclk = devm_clk_get(dev, "extperiph1");
-  if (IS_ERR(refclk)) {
-    if (PTR_ERR(refclk) != -EPROBE_DEFER)
-      dev_err(dev, "failed to get refclk from extperiph1: %ld\n",
-              PTR_ERR(refclk));
-    //      return PTR_ERR(refclk);
+  if ((state->pdata.refclk_hz != 26000000) ||
+      (state->pdata.refclk_hz != 27000000) ||
+      (state->pdata.refclk_hz != 42000000)) {
+    pr_info("refclk_hz error \n");
+    return ret;
   }
-
-  clk_prepare_enable(refclk);
-  state->pdata.refclk_hz = clk_get_rate(refclk);
-  clk_set_rate(refclk, 27000000);     // this will set it to 27200000
-  state->pdata.refclk_hz = 27000000;  // hardcode to 27000000
 
   ep = of_graph_get_next_endpoint(dev->of_node, NULL);
   if (!ep) {
@@ -1986,23 +1973,6 @@ static int tc358743_probe_of(struct tc358743_state *state) {
           endpoint->bus.mipi_csi2.data_lanes[3]);
   pr_info("tc358743 endpoint->nr_of_link_frequencies %d\n",
           endpoint->nr_of_link_frequencies);
-
-  // state->bus = endpoint->bus.mipi_csi2;
-  // pr_info("tc358743 state->bus %s\n",state->bus);
-  // clk_prepare_enable(refclk);
-
-  // state->pdata.refclk_hz = clk_get_rate(refclk);
-  state->pdata.refclk_hz = 27000000;
-  // if ((state->pdata.refclk_hz != 26000000) ||
-  //     (state->pdata.refclk_hz != 27000000) ||
-  //     (state->pdata.refclk_hz != 42000000))
-  // {
-  //     pr_info("Set new clock\n");
-  //     if (0 != clk_set_rate(refclk,27000000))
-  //     {
-  //         pr_info("Error: Set new clock\n");
-  //     }
-  // }
 
   state->pdata.ddc5v_delay = DDC5V_DELAY_100_MS;
   state->pdata.hdmi_detection_delay = HDMI_MODE_DELAY_100_MS;
@@ -2171,15 +2141,22 @@ static int tc358743_probe(struct i2c_client *client,
   int err;
   u16 chip_id_val;
 
-  // pr_info("%s %s %s\n",__FUNCTION__,__DATE__,__TIME__);
+  pr_info("%s\n", __FUNCTION__);
 
-  if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
+  if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA)) {
+    pr_err("i2c check functionality failed addres %02X name %s", client->addr,
+           client->adapter->name);
     return -EIO;
-  v4l_dbg(1, debug, client, "chip found @0x%x (%s)\n", client->addr,
-          client->adapter->name);
+  }
+
+  v4l2_info(sd, "chip found @0x%x (%s)\n", client->addr, client->adapter->name);
 
   state = devm_kzalloc(&client->dev, sizeof(struct tc358743_state), GFP_KERNEL);
-  if (!state) return -ENOMEM;
+  if (!state) {
+    pr_err("devm_kzalloc failed");
+    return -ENOMEM;
+  }
+  v4l2_info(sd, "dev of node %s\n", client->dev.of_node->full_name);
   if (client->dev.of_node) {
     if (!tc358743_parse_dt(&state->pdata, client)) {
       pr_err("Couldn't parse device tree\n");
@@ -2195,8 +2172,10 @@ static int tc358743_probe(struct i2c_client *client,
     pdata->endpoint.bus.mipi_csi2.flags = V4L2_MBUS_CSI2_CONTINUOUS_CLOCK;
   } else {
     err = tc358743_probe_of(state);
-    if (err == -ENODEV) v4l_err(client, "No platform data!\n");
-    if (err) return err;
+    if (err == -ENODEV) {
+      v4l_err(client, "No platform data! err = %d\n", err);
+      return -ENODEV;
+    }
   }
 
   sd = &state->sd;
@@ -2271,7 +2250,7 @@ static int tc358743_probe(struct i2c_client *client,
   sd->dev = &client->dev;
   v4l2_info(sd, "About to register subdev\n");
   err = v4l2_async_register_subdev(sd);
-  v4l_dbg(1, debug, client, "Register subdev: %d\n", err);
+  v4l2_info(sd, "Register subdev: %d\n", err);
 
   if (err < 0) goto err_hdl;
 
@@ -2280,18 +2259,15 @@ static int tc358743_probe(struct i2c_client *client,
   INIT_DELAYED_WORK(&state->delayed_work_enable_hotplug,
                     tc358743_delayed_work_enable_hotplug);
   v4l2_info(sd, "before tc358743_initial_setup\r\n");
-  // tc358743_log_status(sd);
   tc358743_initial_setup(sd);
   v4l2_info(sd, "after tc358743_initial_setup\r\n");
 
   tc358743_set_csi_color_space(sd);
   v4l2_info(sd, "before tc358743_s_dv_timings\r\n");
-  // tc358743_log_status(sd);
   tc358743_s_dv_timings(sd, &default_timing);
 
   v4l2_info(sd, "before tc358743_init_interrupts, irq: %d\r\n",
             state->i2c_client->irq);
-  // tc358743_log_status(sd);
   tc358743_init_interrupts(sd);
   v4l2_info(sd, "after tc358743_init_interrupts, irq: %d\r\n",
             state->i2c_client->irq);
@@ -2349,10 +2325,18 @@ static struct i2c_device_id tc358743_id[] = {{"tc358743", 0}, {}};
 
 MODULE_DEVICE_TABLE(i2c, tc358743_id);
 
+#ifdef CONFIG_OF
+static const struct of_device_id tc358743_of_table[] = {
+    {.compatible = "toshiba,tc358743"}, {}};
+MODULE_DEVICE_TABLE(of, tc358743_of_table);
+#endif
+
 static struct i2c_driver tc358743_driver = {
     .driver =
         {
+            .of_match_table = of_match_ptr(tc358743_of_table),
             .name = "tc358743",
+            .owner = THIS_MODULE,
         },
     .probe = tc358743_probe,
     .remove = tc358743_remove,
