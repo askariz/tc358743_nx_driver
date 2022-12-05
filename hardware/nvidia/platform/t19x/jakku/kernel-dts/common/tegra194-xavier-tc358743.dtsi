@@ -162,7 +162,7 @@
 		modules {
             module0 {
                 status = "okay";
-                badge = "tc358743_top_i2c2_cd";
+                badge = "tc358743_front_i2c2";
                 position = "top";
                 orientation = "3";
                 drivernode0 {

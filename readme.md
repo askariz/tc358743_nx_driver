@@ -5,6 +5,10 @@
 下载源码，解压到这个路径
 Linux_for_Tegra/source/public
 
+```
+ cp tc358743_driver/* . -r
+ 
+```
 
 会自动替换对应的修改
 
