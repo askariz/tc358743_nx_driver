@@ -366,22 +366,28 @@ static void i2c_wr32(struct v4l2_subdev *sd, u16 reg, u32 val) {
 /* --------------- STATUS --------------- */
 
 static inline bool is_hdmi(struct v4l2_subdev *sd) {
+  v4l2_info(sd, "function %s\n", __func__);
+
   return i2c_rd8(sd, SYS_STATUS) & MASK_S_HDMI;
 }
 
 static inline bool tx_5v_power_present(struct v4l2_subdev *sd) {
+  v4l2_info(sd, "function %s\n", __func__);
   return i2c_rd8(sd, SYS_STATUS) & MASK_S_DDC5V;
 }
 
 static inline bool no_signal(struct v4l2_subdev *sd) {
+  v4l2_info(sd, "function %s\n", __func__);
   return !(i2c_rd8(sd, SYS_STATUS) & MASK_S_TMDS);
 }
 
 static inline bool no_sync(struct v4l2_subdev *sd) {
+  v4l2_info(sd, "function %s\n", __func__);
   return !(i2c_rd8(sd, SYS_STATUS) & MASK_S_SYNC);
 }
 
 static inline bool audio_present(struct v4l2_subdev *sd) {
+  v4l2_info(sd, "function %s\n", __func__);
   return i2c_rd8(sd, AU_STATUS0) & MASK_S_A_SAMPLE;
 }
 
@@ -389,7 +395,7 @@ static int get_audio_sampling_rate(struct v4l2_subdev *sd) {
   static const int code_to_rate[] = {
       44100, 0,      48000, 32000,  22050,  384000, 24000,  352800,
       88200, 768000, 96000, 705600, 176400, 0,      192000, 0};
-
+  v4l2_info(sd, "function %s\n", __func__);
   /* Register FS_SET is not cleared when the cable is disconnected */
   if (no_signal(sd)) return 0;
 
@@ -397,6 +403,7 @@ static int get_audio_sampling_rate(struct v4l2_subdev *sd) {
 }
 
 static unsigned tc358743_num_csi_lanes_in_use(struct v4l2_subdev *sd) {
+  v4l2_info(sd, "function %s\n", __func__);
   return ((i2c_rd32(sd, CSI_CONTROL) & MASK_NOL) >> 1) + 1;
 }
 
@@ -512,7 +519,7 @@ static void tc358743_disable_edid(struct v4l2_subdev *sd) {
 
 static void tc358743_erase_bksv(struct v4l2_subdev *sd) {
   int i;
-
+  v4l2_info(sd, "function %s\n", __func__);
   for (i = 0; i < 5; i++) i2c_wr8(sd, BKSV + i, 0);
 }
 
@@ -523,7 +530,7 @@ static void print_avi_infoframe(struct v4l2_subdev *sd) {
   struct device *dev = &client->dev;
   union hdmi_infoframe frame;
   u8 buffer[HDMI_INFOFRAME_SIZE(AVI)];
-
+  v4l2_info(sd, "function %s\n", __func__);
   if (!is_hdmi(sd)) {
     v4l2_info(sd, "DVI-D signal - AVI infoframe not supported\n");
     return;
@@ -543,25 +550,26 @@ static void print_avi_infoframe(struct v4l2_subdev *sd) {
 
 static int tc358743_s_ctrl_detect_tx_5v(struct v4l2_subdev *sd) {
   struct tc358743_state *state = to_state(sd);
-
+  v4l2_info(sd, "function %s\n", __func__);
   return v4l2_ctrl_s_ctrl(state->detect_tx_5v_ctrl, tx_5v_power_present(sd));
 }
 
 static int tc358743_s_ctrl_audio_sampling_rate(struct v4l2_subdev *sd) {
   struct tc358743_state *state = to_state(sd);
-
+  v4l2_info(sd, "function %s\n", __func__);
   return v4l2_ctrl_s_ctrl(state->audio_sampling_rate_ctrl,
                           get_audio_sampling_rate(sd));
 }
 
 static int tc358743_s_ctrl_audio_present(struct v4l2_subdev *sd) {
   struct tc358743_state *state = to_state(sd);
-
+  v4l2_info(sd, "function %s\n", __func__);
   return v4l2_ctrl_s_ctrl(state->audio_present_ctrl, audio_present(sd));
 }
 
 static int tc358743_update_controls(struct v4l2_subdev *sd) {
   int ret = 0;
+  v4l2_info(sd, "function %s\n", __func__);
 
   ret |= tc358743_s_ctrl_detect_tx_5v(sd);
   ret |= tc358743_s_ctrl_audio_sampling_rate(sd);
@@ -571,28 +579,30 @@ static int tc358743_update_controls(struct v4l2_subdev *sd) {
 }
 
 static unsigned tc358743_num_csi_lanes_needed(struct v4l2_subdev *sd) {
-  struct tc358743_state *state = to_state(sd);
-  struct v4l2_bt_timings *bt = &state->timings.bt;
-  struct tc358743_platform_data *pdata = &state->pdata;
-  u32 bits_pr_pixel =
-      (state->mbus_fmt_code == MEDIA_BUS_FMT_UYVY8_1X16) ? 16 : 24;
-  u32 bps = bt->width * bt->height * fps(bt) * bits_pr_pixel;
-  u32 bps_pr_lane = (pdata->refclk_hz / pdata->pll_prd) * pdata->pll_fbd;
-
-  return DIV_ROUND_UP(bps, bps_pr_lane);
+  return 2;
+  // struct tc358743_state *state = to_state(sd);
+  // struct v4l2_bt_timings *bt = &state->timings.bt;
+  // struct tc358743_platform_data *pdata = &state->pdata;
+  // u32 bits_pr_pixel =
+  //     (state->mbus_fmt_code == MEDIA_BUS_FMT_UYVY8_1X16) ? 16 : 24;
+  // u32 bps = bt->width * bt->height * fps(bt) * bits_pr_pixel;
+  // u32 bps_pr_lane = (pdata->refclk_hz / pdata->pll_prd) * pdata->pll_fbd;
+  // v4l2_info(sd, "function %s\n", __func__);
+  // return 2;
+  // return DIV_ROUND_UP(bps, bps_pr_lane);
 }
 
 static int tc358743_get_edid(struct v4l2_subdev *sd) {
-  // static int i2c_rd(struct v4l2_subdev *sd, u16 reg, u8 *values, u32 n)
-  // int i = 0;
   u8 edid_read[256];
   int result = 0;
+  int i = 0;
   u32 n = sizeof(edid_read);
 
   result = i2c_rd(sd, EDID_RAM, edid_read, n);
   v4l2_info(sd, "%s i2c_rd return %d\r\n", __func__, result);
-  // for(i = 0; i< n;i++)
-  //	printk("%02x ",edid_read[i]);
+  for (i = 0; i < n; i++) {
+    v4l2_info(sd, "%02x ", edid_read[i]);
+  }
   v4l2_info(sd, "%s done\r\n", __func__);
   return 0;
 }
@@ -686,12 +696,15 @@ static void tc358743_reset_phy(struct v4l2_subdev *sd) {
 
 static void tc358743_reset(struct v4l2_subdev *sd, uint16_t mask) {
   u16 sysctl = i2c_rd16(sd, SYSCTL);
+  v4l2_info(sd, "function %s\n", __func__);
 
   i2c_wr16(sd, SYSCTL, sysctl | mask);
   i2c_wr16(sd, SYSCTL, sysctl & ~mask);
 }
 
 static inline void tc358743_sleep_mode(struct v4l2_subdev *sd, bool enable) {
+  v4l2_info(sd, "function %s\n", __func__);
+
   i2c_wr16_and_or(sd, SYSCTL, ~MASK_SLEEP, enable ? MASK_SLEEP : 0);
 }
 
@@ -724,6 +737,7 @@ static inline void enable_stream(struct v4l2_subdev *sd, bool enable) {
     tc358743_log_status(sd);
   }
 }
+
 static void tc358743_set_pll(struct v4l2_subdev *sd) {
   struct tc358743_state *state = to_state(sd);
   struct tc358743_platform_data *pdata = &state->pdata;
@@ -765,6 +779,7 @@ static void tc358743_set_ref_clk(struct v4l2_subdev *sd) {
   u32 lockdet_ref;
   u16 fh_min;
   u16 fh_max;
+  v4l2_info(sd, "function %s\n", __func__);
 
   sys_freq = pdata->refclk_hz / 10000;
   i2c_wr8(sd, SYS_FREQ0, sys_freq & 0x00ff);
@@ -792,6 +807,7 @@ static void tc358743_set_ref_clk(struct v4l2_subdev *sd) {
 
 static void tc358743_set_csi_color_space(struct v4l2_subdev *sd) {
   struct tc358743_state *state = to_state(sd);
+  v4l2_info(sd, "function %s\n", __func__);
 
   switch (state->mbus_fmt_code) {
     case MEDIA_BUS_FMT_UYVY8_1X16:
@@ -888,6 +904,7 @@ static void tc358743_set_csi(struct v4l2_subdev *sd) {
 static void tc358743_set_hdmi_phy(struct v4l2_subdev *sd) {
   struct tc358743_state *state = to_state(sd);
   struct tc358743_platform_data *pdata = &state->pdata;
+  v4l2_info(sd, "function %s\n", __func__);
 
   /* Default settings from REF_02, sheet "Source HDMI"
    * and custom settings as platform data */
@@ -916,6 +933,7 @@ static void tc358743_set_hdmi_phy(struct v4l2_subdev *sd) {
 
 static void tc358743_set_hdmi_audio(struct v4l2_subdev *sd) {
   struct tc358743_state *state = to_state(sd);
+  v4l2_info(sd, "function %s\n", __func__);
 
   /* Default settings from REF_02, sheet "Source HDMI" */
   i2c_wr8(sd, FORCE_MUTE, 0x00);
@@ -941,6 +959,8 @@ static void tc358743_set_hdmi_audio(struct v4l2_subdev *sd) {
 
 static void tc358743_set_hdmi_info_frame_mode(struct v4l2_subdev *sd) {
   /* Default settings from REF_02, sheet "Source HDMI" */
+  v4l2_info(sd, "function %s\n", __func__);
+
   i2c_wr8(sd, PK_INT_MODE,
           MASK_ISRC2_INT_MODE | MASK_ISRC_INT_MODE | MASK_ACP_INT_MODE |
               MASK_VS_INT_MODE | MASK_SPD_INT_MODE | MASK_MS_INT_MODE |
@@ -955,6 +975,7 @@ static void tc358743_set_hdmi_info_frame_mode(struct v4l2_subdev *sd) {
 static void tc358743_initial_setup(struct v4l2_subdev *sd) {
   struct tc358743_state *state = to_state(sd);
   struct tc358743_platform_data *pdata = &state->pdata;
+  v4l2_info(sd, "function %s\n", __func__);
 
   /* CEC and IR are not supported by this driver */
   i2c_wr16_and_or(sd, SYSCTL, ~(MASK_CECRST | MASK_IRRST),
@@ -1015,6 +1036,7 @@ static void tc358743_format_change(struct v4l2_subdev *sd) {
 
 static void tc358743_init_interrupts(struct v4l2_subdev *sd) {
   u16 i;
+  v4l2_info(sd, "function %s\n", __func__);
 
   /* clear interrupt status registers */
   for (i = SYS_INT; i <= KEY_INT; i++) i2c_wr8(sd, i, 0xff);
@@ -1396,16 +1418,17 @@ static int tc358743_g_dv_timings(struct v4l2_subdev *sd,
                                  struct v4l2_dv_timings *timings) {
   struct tc358743_state *state = to_state(sd);
   v4l2_info(sd, "Calling %s\n", __FUNCTION__);
-
-  *timings = state->timings;
-
-  return 0;
+  if (state) {
+    *timings = state->timings;
+    return 0;
+  }
+  return -EINVAL;
 }
 
 static int tc358743_enum_dv_timings(struct v4l2_subdev *sd,
                                     struct v4l2_enum_dv_timings *timings) {
   v4l2_info(sd, "Calling %s\n", __FUNCTION__);
-  if (timings->pad != 0) {
+  if (timings && timings->pad != 0) {
     v4l2_err(sd, "%s: failed %d\n", __func__, EINVAL);
     return -EINVAL;
   }
@@ -1457,7 +1480,7 @@ static int tc358743_g_input_status(struct v4l2_subdev *sd, u32 *status) {
 static int tc358743_dv_timings_cap(struct v4l2_subdev *sd,
                                    struct v4l2_dv_timings_cap *cap) {
   v4l2_info(sd, "Calling %s\n", __FUNCTION__);
-  if (cap->pad != 0) return -EINVAL;
+  if (cap && cap->pad != 0) return -EINVAL;
 
   *cap = tc358743_timings_cap;
 
@@ -1669,34 +1692,34 @@ static int tc358743_s_edid(struct v4l2_subdev *sd,
   v4l2_info(sd, "%s completed successfully", __FUNCTION__);
   return 0;
 }
-// static int tc358743_mbus_fmt(struct v4l2_subdev *sd, struct
-// v4l2_mbus_framefmt *mf)
-// {
-// 	struct tc358743_state *state = to_state(sd);
-// 	u8 vi_rep = i2c_rd8(sd, VI_REP);
 
-// 	mf->code = state->mbus_fmt_code;
-// 	mf->width = state->timings.bt.width;
-// 	mf->height = state->timings.bt.height;
-// 	mf->field = V4L2_FIELD_NONE;
-// 	switch (vi_rep & MASK_VOUT_COLOR_SEL) {
-// 		case MASK_VOUT_COLOR_RGB_FULL:
-// 		case MASK_VOUT_COLOR_RGB_LIMITED:
-// 			mf->colorspace = V4L2_COLORSPACE_SRGB;
-// 			break;
-// 		case MASK_VOUT_COLOR_601_YCBCR_LIMITED:
-// 		case MASK_VOUT_COLOR_601_YCBCR_FULL:
-// 			mf->colorspace = V4L2_COLORSPACE_SMPTE170M;
-// 			break;
-// 		case MASK_VOUT_COLOR_709_YCBCR_FULL:
-// 		case MASK_VOUT_COLOR_709_YCBCR_LIMITED:
-// 			mf->colorspace = V4L2_COLORSPACE_REC709;
-// 			break;
-// 		default:
-// 			mf->colorspace = 0;
-// 			break;
-// 	}
-// 	return 0;
+// static int tc358743_mbus_fmt(struct v4l2_subdev *sd,
+//                              struct v4l2_mbus_framefmt *mf) {
+//   struct tc358743_state *state = to_state(sd);
+//   u8 vi_rep = i2c_rd8(sd, VI_REP);
+
+//   mf->code = state->mbus_fmt_code;
+//   mf->width = state->timings.bt.width;
+//   mf->height = state->timings.bt.height;
+//   mf->field = V4L2_FIELD_NONE;
+//   switch (vi_rep & MASK_VOUT_COLOR_SEL) {
+//     case MASK_VOUT_COLOR_RGB_FULL:
+//     case MASK_VOUT_COLOR_RGB_LIMITED:
+//       mf->colorspace = V4L2_COLORSPACE_SRGB;
+//       break;
+//     case MASK_VOUT_COLOR_601_YCBCR_LIMITED:
+//     case MASK_VOUT_COLOR_601_YCBCR_FULL:
+//       mf->colorspace = V4L2_COLORSPACE_SMPTE170M;
+//       break;
+//     case MASK_VOUT_COLOR_709_YCBCR_FULL:
+//     case MASK_VOUT_COLOR_709_YCBCR_LIMITED:
+//       mf->colorspace = V4L2_COLORSPACE_REC709;
+//       break;
+//     default:
+//       mf->colorspace = 0;
+//       break;
+//   }
+//   return 0;
 // }
 
 static int tc358743_enum_mbus_code(struct v4l2_subdev *sd,
@@ -1830,7 +1853,11 @@ static int tc358743_enum_frame_interval(
   return 0;
 }
 
-static int tc358743_s_power(struct v4l2_subdev *sd, int on) { return 0; }
+static int tc358743_s_power(struct v4l2_subdev *sd, int on) {
+  v4l2_info(sd, "function %s\n", __func__);
+
+  return 0;
+}
 
 static const struct v4l2_subdev_core_ops tc358743_core_ops = {
     .s_power = tc358743_s_power,
@@ -1849,7 +1876,7 @@ static const struct v4l2_subdev_video_ops tc358743_video_ops = {
     .s_dv_timings = tc358743_s_dv_timings,
     .g_dv_timings = tc358743_g_dv_timings,
     .s_stream = tc358743_s_stream,
-    // .mbus_fmt	= tc358743_mbus_fmt,
+    // .mbus_fmt = tc358743_mbus_fmt,
     .g_mbus_config = tc358743_g_mbus_config,
     .query_dv_timings = tc358743_query_dv_timings,
 };
@@ -1934,8 +1961,8 @@ static int tc358743_probe_of(struct tc358743_state *state) {
   int ret = -EINVAL;
   pr_info("%s\n", __FUNCTION__);
 
-  if ((state->pdata.refclk_hz != 26000000) ||
-      (state->pdata.refclk_hz != 27000000) ||
+  if ((state->pdata.refclk_hz != 26000000) &&
+      (state->pdata.refclk_hz != 27000000) &&
       (state->pdata.refclk_hz != 42000000)) {
     pr_info("refclk_hz error \n");
     return ret;
