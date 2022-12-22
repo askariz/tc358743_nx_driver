@@ -2,9 +2,8 @@
 #include <dt-bindings/gpio/tegra194-gpio.h>
 #include <dt-bindings/clock/tegra194-clock.h>
 
-#define CAM0_PWDN	    TEGRA194_MAIN_GPIO(P, 4)
-#define CAM1_PWDN	    TEGRA194_MAIN_GPIO(P, 5)
-#define CAM_I2C_MUX 	TEGRA194_AON_GPIO(CC, 3)
+#define TC358743_PWDN	    TEGRA194_MAIN_GPIO(P, 4)
+
 
 /{
     host1x {
@@ -13,7 +12,7 @@
             camera-control-output-low {
                 gpio-hog;
                 output-low;
-                gpios = < CAM0_PWDN 0 >;
+                gpios = < TC358743_PWDN 0 >;
                 label = "cam0-pwdn";
             };
         };
@@ -23,14 +22,13 @@
             ports {
                 #address-cells = <1>;
                 #size-cells = <0>;
-                tc358743_vi_port2: port@0 {
+                tc358743_vi_port0: port@0 {
                     status = "okay";
                     reg = <0>;
                     tc358743_vi_in0: endpoint {
                         status = "okay";
                         port-index = <4>;
-                        csi-port = <2>;  /* CSI-C */
-                        bus-width = <4>; /* Use CSI-CD*/
+                        bus-width = <4>; /* Use CSI-EF*/
                         remote-endpoint = <&tc358743_csi_out0>;
                     };
                 };
@@ -54,7 +52,6 @@
 							tc358743_csi_in0: endpoint@0 {
 								status = "okay";
                             	port-index = <4>;
-								csi-port = <4>;
 								bus-width = <4>;
 								remote-endpoint = <&tc358743_out0>;
 							};
@@ -83,16 +80,22 @@
             compatible = "toshiba,tc358743";
             reg = <0x0f>; /* (normal = address not shifted) */
             devnode ="video0";
-            reset-gpios = <&tegra_main_gpio CAM0_PWDN GPIO_ACTIVE_HIGH>;
+            reset-gpios = <&tegra_main_gpio TC358743_PWDN GPIO_ACTIVE_HIGH>;
             refclk_hz = <27000000>;  // refclk_hz -> regclk
 	        //interrupt-parent = <&gpio>;
 	        interrupt-parent = <&tegra_main_gpio>;
-            interrupts = <TEGRA194_MAIN_GPIO(N, 1) GPIO_ACTIVE_HIGH>;
+            interrupts = <TEGRA194_MAIN_GPIO(Y, 4) IRQ_TYPE_EDGE_RISING>;
             /* Physical dimensions of sensor */
             physical_w = "4.713";
             physical_h = "3.494";
             /* Sensor Model */
             sensor_model ="tc358743";
+			num_lanes = "4";
+			tegra_sinterface = "serial_e";
+			phy_mode = "DPHY";
+			discontinuous_clk = "no";
+            // use_sensor_mode_id = "true";
+
             ddc5v_delay = <2>;
             enable_hdcp = "false";
             lineinitcnt = <0xe80>;
@@ -114,12 +117,13 @@
                     status = "okay";
                     reg = <0>;
                     tc358743_out0: endpoint {
-                        port-index = <0>; /* CSI B */
-                        bus-width = <2>; /* Use CSI-B only */
-                        data-lanes = <1 2>;
-                        clock-lanes = <0>;
-                        clock-noncontinuous;
-                        link-frequencies = /bits/ 64 <297000000>;
+                        port-index = <4>; /* CSI E F */
+                        bus-width = <4>; /* Use CSI-E F */
+						phy_mode = "DPHY";
+						data-lanes = <1 2 3 4>;
+						clock-lanes = <4>;
+						//clock-noncontinuous;
+						link-frequencies = /bits/ 64 <297000000>;//297000000///594000000
                         remote-endpoint = <&tc358743_csi_in0>;
                     };
                 };
@@ -150,9 +154,9 @@
 		modules {
             module0 {
                 status = "okay";
-                badge = "tc358743_front_i2c2";
+                badge = "tc358743_front";
                 position = "top";
-                orientation = "3";
+                orientation = "0";
                 drivernode0 {
                     status = "okay";
                     /* Declare PCL support driver (classically known as guid)  */

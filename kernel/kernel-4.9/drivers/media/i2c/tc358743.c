@@ -58,6 +58,8 @@ MODULE_AUTHOR("Mikhail Khelik <mkhelik@cisco.com>");
 MODULE_AUTHOR("Mats Randgaard <matrandg@cisco.com>");
 MODULE_LICENSE("GPL");
 
+#define DELAY_ENABLE_INTERRUPT_MS 2000
+
 /* mode */
 enum {
   tc358743_MODE_1280X720,
@@ -65,16 +67,10 @@ enum {
 };
 
 /* frame rate */
-static const int tc358743_30fps[] = {
-    30,
-};
 static const int tc358743_30_60fps[] = {
     30,
     50,
     60,
-};
-static const int tc358743_50fps[] = {
-    50,
 };
 
 /* frame format */
@@ -192,6 +188,9 @@ struct tc358743_state {
   /* work queues */
   struct workqueue_struct *work_queues;
   struct delayed_work delayed_work_enable_hotplug;
+  struct delayed_work delayed_work_enable_interrupt;
+  struct work_struct process_isr;
+  struct mutex isr_lock;
 
   /* edid  */
   u8 edid_blocks_written;
@@ -579,30 +578,26 @@ static int tc358743_update_controls(struct v4l2_subdev *sd) {
 }
 
 static unsigned tc358743_num_csi_lanes_needed(struct v4l2_subdev *sd) {
-  return 2;
-  // struct tc358743_state *state = to_state(sd);
-  // struct v4l2_bt_timings *bt = &state->timings.bt;
-  // struct tc358743_platform_data *pdata = &state->pdata;
-  // u32 bits_pr_pixel =
-  //     (state->mbus_fmt_code == MEDIA_BUS_FMT_UYVY8_1X16) ? 16 : 24;
-  // u32 bps = bt->width * bt->height * fps(bt) * bits_pr_pixel;
-  // u32 bps_pr_lane = (pdata->refclk_hz / pdata->pll_prd) * pdata->pll_fbd;
-  // v4l2_info(sd, "function %s\n", __func__);
   // return 2;
-  // return DIV_ROUND_UP(bps, bps_pr_lane);
+  struct tc358743_state *state = to_state(sd);
+  struct v4l2_bt_timings *bt = &state->timings.bt;
+  struct tc358743_platform_data *pdata = &state->pdata;
+  u32 bits_pr_pixel =
+      (state->mbus_fmt_code == MEDIA_BUS_FMT_UYVY8_1X16) ? 16 : 24;
+  u32 bps = bt->width * bt->height * fps(bt) * bits_pr_pixel;
+  u32 bps_pr_lane = (pdata->refclk_hz / pdata->pll_prd) * pdata->pll_fbd;
+  v4l2_info(sd, "function %s bps %d bps_pr_lane%d \n", __func__, bps,
+            bps_pr_lane);
+  return DIV_ROUND_UP(bps, bps_pr_lane);
 }
 
 static int tc358743_get_edid(struct v4l2_subdev *sd) {
   u8 edid_read[256];
   int result = 0;
-  int i = 0;
   u32 n = sizeof(edid_read);
 
   result = i2c_rd(sd, EDID_RAM, edid_read, n);
   v4l2_info(sd, "%s i2c_rd return %d\r\n", __func__, result);
-  for (i = 0; i < n; i++) {
-    v4l2_info(sd, "%02x ", edid_read[i]);
-  }
   v4l2_info(sd, "%s done\r\n", __func__);
   return 0;
 }
@@ -733,9 +728,6 @@ static inline void enable_stream(struct v4l2_subdev *sd, bool enable) {
                   enable ? (MASK_VBUFEN | MASK_ABUFEN) : 0x0);
   mutex_unlock(&state->confctl_mutex);
   v4l2_info(sd, "%d:%s: end\n", __LINE__, __FUNCTION__);
-  if (enable) {
-    tc358743_log_status(sd);
-  }
 }
 
 static void tc358743_set_pll(struct v4l2_subdev *sd) {
@@ -821,17 +813,16 @@ static void tc358743_set_csi_color_space(struct v4l2_subdev *sd) {
       i2c_wr16_and_or(sd, CONFCTL, ~MASK_YCBCRFMT, MASK_YCBCRFMT_422_8_BIT);
       mutex_unlock(&state->confctl_mutex);
       break;
-    // case MEDIA_BUS_FMT_RGB888_1X24:
-    //	v4l2_info(sd, "%s: RGB 888 24-bit\n", __func__);
-    //	i2c_wr8_and_or(sd, VOUT_SET2,
-    //			~(MASK_SEL422 | MASK_VOUT_422FIL_100) &0xff,
-    //			0x00);
-    //	i2c_wr8_and_or(sd, VI_REP, ~MASK_VOUT_COLOR_SEL &0xff,
-    //			MASK_VOUT_COLOR_RGB_FULL);
-    //	mutex_lock(&state->confctl_mutex);
-    //	i2c_wr16_and_or(sd, CONFCTL, ~MASK_YCBCRFMT, 0);
-    //	mutex_unlock(&state->confctl_mutex);
-    //	break;
+    case MEDIA_BUS_FMT_RGB888_1X24:
+      v4l2_info(sd, "%s: RGB 888 24-bit\n", __func__);
+      i2c_wr8_and_or(sd, VOUT_SET2,
+                     ~(MASK_SEL422 | MASK_VOUT_422FIL_100) & 0xff, 0x00);
+      i2c_wr8_and_or(sd, VI_REP, ~MASK_VOUT_COLOR_SEL & 0xff,
+                     MASK_VOUT_COLOR_RGB_FULL);
+      mutex_lock(&state->confctl_mutex);
+      i2c_wr16_and_or(sd, CONFCTL, ~MASK_YCBCRFMT, 0);
+      mutex_unlock(&state->confctl_mutex);
+      break;
     default:
       v4l2_dbg(2, debug, sd, "%s: Unsupported format code 0x%x\n", __func__,
                state->mbus_fmt_code);
@@ -1198,6 +1189,20 @@ static void tc358743_enable_edid(struct v4l2_subdev *sd) {
   v4l2_info(sd, "%s completed successfully", __FUNCTION__);
 }
 
+static void tc358743_delayed_work_enable_interrupt(struct work_struct *work) {
+  struct delayed_work *dwork = to_delayed_work(work);
+  struct tc358743_state *state =
+      container_of(dwork, struct tc358743_state, delayed_work_enable_interrupt);
+  struct v4l2_subdev *sd = &state->sd;
+
+  v4l2_dbg(2, debug, sd, "%s:\n", __func__);
+
+  tc358743_enable_interrupts(sd, tx_5v_power_present(sd));
+
+  // /* Temporary EDID. Should be set by userspace */
+  // tc358743_s_edid(sd, &sd_edid);
+}
+
 static void tc358743_hdmi_sys_int_handler(struct v4l2_subdev *sd,
                                           bool *handled) {
   struct tc358743_state *state = to_state(sd);
@@ -1331,8 +1336,6 @@ static int tc358743_s_register(struct v4l2_subdev *sd,
 static int tc358743_isr(struct v4l2_subdev *sd, u32 status, bool *handled) {
   u16 intstatus = i2c_rd16(sd, INTSTATUS);
 
-  v4l2_info(sd, "%s: IntStatus =0x%04x\n", __func__, intstatus);
-
   if (intstatus & MASK_HDMI_INT) {
     u8 hdmi_int0 = i2c_rd8(sd, HDMI_INT0);
     u8 hdmi_int1 = i2c_rd8(sd, HDMI_INT1);
@@ -1365,13 +1368,25 @@ static int tc358743_isr(struct v4l2_subdev *sd, u32 status, bool *handled) {
   return 0;
 }
 
+static void tc358743_process_isr(struct work_struct *work) {
+  struct tc358743_state *state =
+      container_of(work, struct tc358743_state, process_isr);
+  struct v4l2_subdev *sd = &state->sd;
+  bool handled;
+
+  v4l2_dbg(2, debug, sd, "%s:\n", __func__);
+
+  mutex_lock(&state->isr_lock);
+  tc358743_isr(sd, 0, &handled);
+  mutex_unlock(&state->isr_lock);
+}
+
 static irqreturn_t tc358743_irq_handler(int irq, void *dev_id) {
   struct tc358743_state *state = dev_id;
-  bool handled = false;
 
-  tc358743_isr(&state->sd, 0, &handled);
+  queue_work(state->work_queues, &state->process_isr);
 
-  return handled ? IRQ_HANDLED : IRQ_NONE;
+  return IRQ_HANDLED;
 }
 
 static int tc358743_subscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
@@ -1517,17 +1532,7 @@ static int tc358743_g_mbus_config(struct v4l2_subdev *sd,
 
 static int tc358743_s_stream(struct v4l2_subdev *sd, int enable) {
   v4l2_info(sd, "Calling %s\n", __FUNCTION__);
-  v4l2_err(sd, "Calling %s\n", __FUNCTION__);
-  /* FIXME: show log status for test */
-  /*hainh
-  enable_stream(sd, enable);
-  if (enable)
-          tc358743_log_status(sd);
-  */
   enable_stream(sd, true);
-  // if (true)
-  // 	tc358743_log_status(sd);
-
   return 0;
 }
 
@@ -1739,6 +1744,7 @@ static int tc358743_enum_mbus_code(struct v4l2_subdev *sd,
     case 1:
       code->code = MEDIA_BUS_FMT_UYVY8_1X16;
       break;
+
     default:
       return -EINVAL;
   }
@@ -2061,60 +2067,6 @@ static int tc358743_probe_of(struct tc358743_state *state) {
   state->pdata.tclk_postcnt = 0x008;
   state->pdata.ths_trailcnt = 0x2;
   state->pdata.hstxvregcnt = 2;
-  /*richard you*/
-  // state->pdata.pll_prd        = 4;
-#ifdef TC358743_VOUT_RGB
-  state->pdata.pll_fbd = 132;
-
-  // timing setting
-  state->pdata.lineinitcnt = 0x00000fa0;
-  state->pdata.lptxtimecnt = 0x00000005;
-  state->pdata.tclk_headercnt = 0x00001603;
-  state->pdata.tclk_trailcnt = 0x00000001;
-  state->pdata.ths_headercnt = 0x00000603;
-  state->pdata.twakeup = 0x000032c8;
-  state->pdata.tclk_postcnt = 0x00000008;
-  state->pdata.ths_trailcnt = 0x00000002;
-  state->pdata.hstxvregcnt = 0x00000005;
-#else
-  //	state->pdata.pll_fbd        = 88;
-
-  // timing setting
-  //	state->pdata.lineinitcnt    =0x00001770;
-  //	state->pdata.lptxtimecnt    =0x00000005;
-  //	state->pdata.tclk_headercnt =0x00002004;
-  //	state->pdata.tclk_trailcnt  =0x00000001;
-  //	state->pdata.ths_headercnt  =0x00000606;
-  //	state->pdata.twakeup        =0x00004a38;
-  //	state->pdata.tclk_postcnt   =0x00000008;
-  //	state->pdata.ths_trailcnt   =0x00000005;
-  //	state->pdata.hstxvregcnt    =0x00000005;
-  //#endif
-
-  state->pdata.pll_fbd = 176;  // 144
-
-  // timing setting
-  // case 972000000U:
-  state->pdata.lineinitcnt = 0x1d01;  //
-  state->pdata.lptxtimecnt = 0x008;   //
-                                      /* tclk-preparecnt: 6, tclk-zerocnt: 45 */
-  state->pdata.tclk_headercnt = 0x2D06;  // 0x0218
-  state->pdata.tclk_trailcnt = 0x09;     //
-  /* ths-preparecnt: 7, ths-zerocnt: 17 */
-  state->pdata.ths_headercnt = 0xd06;  // 0x0220
-  state->pdata.twakeup = 0x4883;       //
-  state->pdata.tclk_postcnt = 0x010;   //
-  state->pdata.ths_trailcnt = 0xA;     //
-  state->pdata.hstxvregcnt = 5;        // 5
-#endif
-
-  //~ state->reset_gpio = devm_gpiod_get_optional(dev, "reset",
-  //~ GPIOD_OUT_LOW);
-  //~ if (IS_ERR(state->reset_gpio)) {
-  //~ dev_err(dev, "failed to get reset gpio\n");
-  //~ ret = PTR_ERR(state->reset_gpio);
-  //~ goto disable_clk;
-  //~ }
 
   if (state->reset_gpio) {
     pr_info("Calling reset GPIO but NOT IMPLEMENTED!");
@@ -2155,9 +2107,7 @@ static const struct regmap_config sensor_regmap_config = {
 
 static int tc358743_probe(struct i2c_client *client,
                           const struct i2c_device_id *id) {
-  static struct v4l2_dv_timings default_timing =
-      // V4L2_DV_BT_CEA_1920X1080P60;
-      V4L2_DV_BT_CEA_1920X1080P60;
+  static struct v4l2_dv_timings default_timing = V4L2_DV_BT_CEA_1920X1080P60;
   struct v4l2_subdev_edid sd_edid = {
       .blocks = 2,
       .edid = edid,
@@ -2285,6 +2235,11 @@ static int tc358743_probe(struct i2c_client *client,
 
   INIT_DELAYED_WORK(&state->delayed_work_enable_hotplug,
                     tc358743_delayed_work_enable_hotplug);
+  INIT_DELAYED_WORK(&state->delayed_work_enable_interrupt,
+                    tc358743_delayed_work_enable_interrupt);
+  INIT_WORK(&state->process_isr, tc358743_process_isr);
+  mutex_init(&state->isr_lock);
+
   v4l2_info(sd, "before tc358743_initial_setup\r\n");
   tc358743_initial_setup(sd);
   v4l2_info(sd, "after tc358743_initial_setup\r\n");
@@ -2302,12 +2257,14 @@ static int tc358743_probe(struct i2c_client *client,
     v4l2_info(sd, "IQR request\r\n");
     err = devm_request_threaded_irq(
         &client->dev, state->i2c_client->irq, NULL, tc358743_irq_handler,
-        IRQF_TRIGGER_HIGH | IRQF_ONESHOT, "tc358743", state);
+        IRQF_TRIGGER_RISING | IRQF_ONESHOT, "tc358743", state);
     v4l2_err(sd, "err, %d\n", err);
     if (err) goto err_work_queues;
   }
+  queue_delayed_work(state->work_queues, &state->delayed_work_enable_interrupt,
+                     msecs_to_jiffies(DELAY_ENABLE_INTERRUPT_MS));
 
-  tc358743_enable_interrupts(sd, true);
+  tc358743_enable_interrupts(sd, tx_5v_power_present(sd));
   i2c_wr16(sd, INTMASK, ~(MASK_HDMI_MSK | MASK_CSI_MSK) & 0xffff);
 
   err = v4l2_ctrl_handler_setup(sd->ctrl_handler);
